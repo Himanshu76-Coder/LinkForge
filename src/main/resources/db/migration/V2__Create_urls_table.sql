@@ -37,7 +37,7 @@ CREATE TABLE urls (
 
     -- Unique Constraints
     CONSTRAINT uq_urls_short_code UNIQUE (short_code),
-    CONSTRAINT uq_urls_user_original_url UNIQUE (user_id, original_url(768)),
+    CONSTRAINT uq_urls_user_original_url UNIQUE (user_id, original_url(191)),
 
     -- Foreign Keys
     CONSTRAINT fk_urls_user
