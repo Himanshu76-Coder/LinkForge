@@ -26,8 +26,4 @@ public interface ClickLogRepository extends JpaRepository<ClickLog, Long> {
     long countClicksByDateRange(@Param("urlId") Long urlId,
                                 @Param("startDate") LocalDateTime startDate,
                                 @Param("endDate") LocalDateTime endDate);
-
-    // Get click counts grouped by country for a URL
-    @Query("SELECT c.country, COUNT(c) FROM ClickLog c WHERE c.url.id = :urlId GROUP BY c.country")
-    List<Object[]> getClicksByCountry(@Param("urlId") Long urlId);
 }

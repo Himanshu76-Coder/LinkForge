@@ -1,7 +1,7 @@
 package com.linkforge.urlshortener.util;
 
 import com.linkforge.urlshortener.entity.User;
-import com.linkforge.urlshortener.exception.UnauthorizedException;
+import com.linkforge.urlshortener.exception.auth.UnauthorizedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 

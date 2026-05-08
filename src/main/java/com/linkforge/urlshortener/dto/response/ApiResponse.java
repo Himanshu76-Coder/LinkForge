@@ -24,11 +24,6 @@ public class ApiResponse<T> {
         this.timestamp = LocalDateTime.now();
     }
 
-    // 200 OK with data
-    public static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>(200, true, "Success", data);
-    }
-
     // 200 OK with custom message and data
     public static <T> ApiResponse<T> success(String message, T data) {
         return new ApiResponse<>(200, true, message, data);

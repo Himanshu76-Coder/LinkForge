@@ -10,9 +10,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,10 +25,9 @@ public class AnalyticsController {
     private final AnalyticsService analyticsService;
 
     // GET /api/v1/analytics/urls/{urlId}/statistics - aggregated click stats
-    @Operation(summary = "Get click statistics", description = "Returns total, today, week, and month click counts plus breakdown by country.")
+    @Operation(summary = "Get click statistics", description = "Returns total, today, week, and month click counts.")
     @GetMapping("/urls/{urlId}/statistics")
-    public ResponseEntity<ApiResponse<ClickStatisticsResponse>> getClickStatistics(
-            @PathVariable Long urlId) {
+    public ResponseEntity<ApiResponse<ClickStatisticsResponse>> getClickStatistics(@PathVariable Long urlId) {
 
         User currentUser = SecurityUtil.getCurrentUser();
         ClickStatisticsResponse stats = analyticsService.getClickStatistics(urlId, currentUser.getId());
@@ -49,24 +45,19 @@ public class AnalyticsController {
             @RequestParam(defaultValue = "DESC") String sortDir) {
 
         User currentUser = SecurityUtil.getCurrentUser();
-
-        Sort sort = "ASC".equalsIgnoreCase(sortDir)
-                ? Sort.by(sortBy).ascending()
-                : Sort.by(sortBy).descending();
-        Pageable pageable = PageRequest.of(page, size, sort);
-
-        Page<ClickLogResponse> clickLogs = analyticsService.getClickLogs(urlId, currentUser.getId(), pageable);
+        Page<ClickLogResponse> clickLogs = analyticsService.getClickLogs(
+                urlId, currentUser.getId(), page, size, sortBy, sortDir);
         return ResponseEntity.ok(ApiResponse.success("Click logs retrieved successfully", clickLogs));
     }
 
     // GET /api/v1/analytics/urls/{urlId}/recent-clicks - last 10 clicks
     @Operation(summary = "Get recent clicks", description = "Returns the 10 most recent click log entries for a short URL.")
     @GetMapping("/urls/{urlId}/recent-clicks")
-    public ResponseEntity<ApiResponse<List<ClickLogResponse>>> getRecentClicks(
-            @PathVariable Long urlId) {
+    public ResponseEntity<ApiResponse<List<ClickLogResponse>>> getRecentClicks(@PathVariable Long urlId) {
 
         User currentUser = SecurityUtil.getCurrentUser();
         List<ClickLogResponse> recentClicks = analyticsService.getRecentClicks(urlId, currentUser.getId());
         return ResponseEntity.ok(ApiResponse.success("Recent clicks retrieved successfully", recentClicks));
     }
 }
+

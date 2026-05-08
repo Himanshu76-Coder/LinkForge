@@ -2,7 +2,7 @@ package com.linkforge.urlshortener.util;
 
 import java.security.SecureRandom;
 
-// Utility for generating and validating short codes used in shortened URLs
+// Utility for generating random short codes used in shortened URLs
 public class ShortCodeGenerator {
 
     private static final String CHARACTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -25,19 +25,5 @@ public class ShortCodeGenerator {
             shortCode.append(CHARACTERS.charAt(random.nextInt(CHARACTERS.length())));
         }
         return shortCode.toString();
-    }
-
-    // Validate that a short code contains only allowed characters and is the right length
-    public static boolean isValid(String shortCode) {
-        if (shortCode == null || shortCode.length() < 4 || shortCode.length() > 10) {
-            return false;
-        }
-        // Check each character explicitly to avoid allMatch() empty-stream edge case
-        for (int i = 0; i < shortCode.length(); i++) {
-            if (CHARACTERS.indexOf(shortCode.charAt(i)) < 0) {
-                return false;
-            }
-        }
-        return true;
     }
 }

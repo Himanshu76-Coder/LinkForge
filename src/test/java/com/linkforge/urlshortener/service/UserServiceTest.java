@@ -5,10 +5,10 @@ import com.linkforge.urlshortener.dto.request.RegisterRequest;
 import com.linkforge.urlshortener.dto.request.UpdateProfileRequest;
 import com.linkforge.urlshortener.dto.response.UserResponse;
 import com.linkforge.urlshortener.entity.User;
-import com.linkforge.urlshortener.exception.DuplicateResourceException;
-import com.linkforge.urlshortener.exception.InvalidCredentialsException;
-import com.linkforge.urlshortener.exception.InvalidRequestException;
-import com.linkforge.urlshortener.exception.ResourceNotFoundException;
+import com.linkforge.urlshortener.exception.auth.InvalidCredentialsException;
+import com.linkforge.urlshortener.exception.input.InvalidRequestException;
+import com.linkforge.urlshortener.exception.resource.DuplicateResourceException;
+import com.linkforge.urlshortener.exception.resource.ResourceNotFoundException;
 import com.linkforge.urlshortener.repository.UrlRepository;
 import com.linkforge.urlshortener.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 // Unit tests for UserService - repositories and encoder are mocked
@@ -40,9 +40,6 @@ class UserServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
-
-    @Mock
-    private RefreshTokenService refreshTokenService;
 
     @InjectMocks
     private UserService userService;
@@ -82,6 +79,8 @@ class UserServiceTest {
 
         assertThat(response.getUsername()).isEqualTo("john_doe");
         assertThat(response.getEmail()).isEqualTo("john@example.com");
+        // Password must be hashed before saving — raw password must never be stored
+        verify(passwordEncoder).encode("password123");
         verify(userRepository).save(any(User.class));
     }
 
@@ -178,7 +177,6 @@ class UserServiceTest {
     void updateProfile_withNoFieldsProvided_throwsInvalidRequestException() {
         UpdateProfileRequest request = new UpdateProfileRequest();
 
-        // Validation runs before DB call - throws immediately, no mock needed
         assertThatThrownBy(() -> userService.updateProfile(1L, request))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("At least one field");
@@ -188,6 +186,7 @@ class UserServiceTest {
 
     // ==========================================
     // changePassword() tests
+    // Token revocation is handled by AuthService, not UserService.
     // ==========================================
 
     @Test
@@ -204,7 +203,6 @@ class UserServiceTest {
         userService.changePassword(1L, request);
 
         verify(userRepository).save(any(User.class));
-        verify(refreshTokenService).revokeAllUserTokens(1L);
     }
 
     @Test
@@ -257,6 +255,15 @@ class UserServiceTest {
         assertThat(stats.getActiveUrls()).isEqualTo(7L);
         assertThat(stats.getInactiveUrls()).isEqualTo(3L);
         assertThat(stats.getExpiredUrls()).isEqualTo(2L);
+    }
+
+    @Test
+    void getStats_withNonExistentUser_throwsResourceNotFoundException() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getStats(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User not found");
     }
 
     // ==========================================

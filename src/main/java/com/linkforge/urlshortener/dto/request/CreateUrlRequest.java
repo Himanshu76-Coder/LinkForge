@@ -1,6 +1,7 @@
 package com.linkforge.urlshortener.dto.request;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -15,7 +16,8 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 public class CreateUrlRequest {
 
-    // Original URL is required - validated further in service layer
+    // Original URL is required
+    @NotBlank(message = "Original URL is required")
     @Size(max = 2048, message = "URL must not exceed 2048 characters")
     private String originalUrl;
 

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkforge.urlshortener.dto.request.LoginRequest;
 import com.linkforge.urlshortener.dto.request.RefreshTokenRequest;
 import com.linkforge.urlshortener.dto.request.RegisterRequest;
-import com.linkforge.urlshortener.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,9 +31,6 @@ class AuthControllerIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
-
-    @Autowired
-    private UserRepository userRepository;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -91,6 +87,22 @@ class AuthControllerIntegrationTest {
     }
 
     @Test
+    void register_withDuplicateUsername_returns409() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("john_doe"); // already registered in setUp
+        request.setEmail("different@example.com");
+        request.setPassword("password123");
+
+        mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("DUPLICATE_RESOURCE"));
+    }
+
+    @Test
     void register_withShortPassword_returns400WithValidationError() throws Exception {
         RegisterRequest request = new RegisterRequest();
         request.setUsername("new_user");
@@ -104,7 +116,7 @@ class AuthControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("Validation failed"))
-                .andExpect(jsonPath("$.errors[0].field").value("password"));
+                .andExpect(jsonPath("$.error.errors[0].field").value("password"));
     }
 
     @Test
@@ -186,18 +198,55 @@ class AuthControllerIntegrationTest {
         String refreshToken = objectMapper.readTree(loginResult.getResponse().getContentAsString())
                 .path("data").path("refreshToken").asText();
 
-        // Use refresh token to get new access token
+        // Use refresh token to get new access token and rotated refresh token
         RefreshTokenRequest refreshRequest = new RefreshTokenRequest();
         refreshRequest.setRefreshToken(refreshToken);
 
-        mockMvc.perform(post("/api/v1/auth/refresh")
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshRequest)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.accessToken").exists())
-                .andExpect(jsonPath("$.data.tokenType").value("Bearer"));
+                .andExpect(jsonPath("$.data.refreshToken").exists())
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+                .andReturn();
+
+        // The new refresh token must be different from the old one (rotation)
+        String newRefreshToken = objectMapper.readTree(refreshResult.getResponse().getContentAsString())
+                .path("data").path("refreshToken").asText();
+        assertThat(newRefreshToken).isNotEqualTo(refreshToken);
+    }
+
+    @Test
+    void refresh_withAlreadyUsedToken_returns401() throws Exception {
+        // Login to get a refresh token
+        LoginRequest loginRequest = new LoginRequest();
+        loginRequest.setEmail("john@example.com");
+        loginRequest.setPassword("password123");
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andReturn();
+
+        String refreshToken = objectMapper.readTree(loginResult.getResponse().getContentAsString())
+                .path("data").path("refreshToken").asText();
+
+        // Use the refresh token once (rotates it)
+        RefreshTokenRequest refreshRequest = new RefreshTokenRequest();
+        refreshRequest.setRefreshToken(refreshToken);
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(refreshRequest)));
+
+        // Try to use the same (now revoked) token again - must fail
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("TOKEN_INVALID"));
     }
 
     @Test
@@ -253,5 +302,16 @@ class AuthControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(refreshRequest)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_withoutBody_returns400() throws Exception {
+        // The refreshToken field is @NotBlank — sending an empty body must return 400
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Validation failed"));
     }
 }

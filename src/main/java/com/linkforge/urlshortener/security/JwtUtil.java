@@ -3,6 +3,7 @@ package com.linkforge.urlshortener.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,17 @@ public class JwtUtil {
 
     @Value("${jwt.access-token-expiration}")
     private long accessTokenExpiration;
+
+    // Fails fast at startup if the secret is shorter than 32 bytes (256 bits),
+    // which is the minimum JJWT requires for HMAC-SHA256.
+    @PostConstruct
+    public void validateSecretKey() {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                "jwt.secret must be at least 32 characters (256 bits). " +
+                "Please update your configuration.");
+        }
+    }
 
     // Generate a signed JWT access token for the given username and user ID
     public String generateAccessToken(String username, Long userId) {
@@ -51,13 +63,13 @@ public class JwtUtil {
         return extractClaims(token).getExpiration().before(new Date());
     }
 
-    // Validate token signature and expiry
+    // Validate token signature and expiry; returns false for any invalid or malformed token
     public boolean validateToken(String token) {
         try {
             extractClaims(token);
             return true;
         } catch (Exception e) {
-            // Log with stack trace for proper debugging
+            // Log with stack trace to help diagnose signature mismatches or clock skew issues
             log.warn("JWT validation failed: {}", e.getMessage(), e);
             return false;
         }

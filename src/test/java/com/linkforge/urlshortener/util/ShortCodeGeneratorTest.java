@@ -49,33 +49,4 @@ class ShortCodeGeneratorTest {
         assertThatThrownBy(() -> ShortCodeGenerator.generate(11))
                 .isInstanceOf(IllegalArgumentException.class);
     }
-
-    @Test
-    void isValid_withValidCode_returnsTrue() {
-        assertThat(ShortCodeGenerator.isValid("abc123")).isTrue();
-        assertThat(ShortCodeGenerator.isValid("ABCDEF")).isTrue();
-        assertThat(ShortCodeGenerator.isValid("aB3xYz")).isTrue();
-    }
-
-    @Test
-    void isValid_withNullCode_returnsFalse() {
-        assertThat(ShortCodeGenerator.isValid(null)).isFalse();
-    }
-
-    @Test
-    void isValid_withTooShortCode_returnsFalse() {
-        assertThat(ShortCodeGenerator.isValid("abc")).isFalse();
-    }
-
-    @Test
-    void isValid_withTooLongCode_returnsFalse() {
-        assertThat(ShortCodeGenerator.isValid("abcdefghijk")).isFalse();
-    }
-
-    @Test
-    void isValid_withInvalidCharacters_returnsFalse() {
-        assertThat(ShortCodeGenerator.isValid("abc-12")).isFalse();
-        assertThat(ShortCodeGenerator.isValid("abc@12")).isFalse();
-        assertThat(ShortCodeGenerator.isValid("abc 12")).isFalse();
-    }
 }

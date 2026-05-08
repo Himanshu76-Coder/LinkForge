@@ -3,6 +3,7 @@ package com.linkforge.urlshortener.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
@@ -12,11 +13,13 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-// Returns a JSON 403 response when an authenticated user accesses a resource they are not allowed to
+// Returns a JSON 403 response when an authenticated user accesses a resource they don't own
 @Component
+@RequiredArgsConstructor
 public class JwtAccessDeniedHandler implements AccessDeniedHandler {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Use Spring's configured ObjectMapper so LocalDateTime serializes consistently with the rest of the API
+    private final ObjectMapper objectMapper;
 
     @Override
     public void handle(HttpServletRequest request,
@@ -26,7 +29,6 @@ public class JwtAccessDeniedHandler implements AccessDeniedHandler {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
 
-        // Build standardized error response matching PRD error envelope
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", 403);
         body.put("success", false);
@@ -37,7 +39,7 @@ public class JwtAccessDeniedHandler implements AccessDeniedHandler {
         error.put("details", null);
         body.put("error", error);
 
-        body.put("timestamp", LocalDateTime.now().toString());
+        body.put("timestamp", LocalDateTime.now());
 
         response.getWriter().write(objectMapper.writeValueAsString(body));
     }

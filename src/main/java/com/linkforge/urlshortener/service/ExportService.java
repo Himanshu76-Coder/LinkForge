@@ -2,15 +2,15 @@ package com.linkforge.urlshortener.service;
 
 import com.linkforge.urlshortener.dto.response.UrlResponse;
 import com.linkforge.urlshortener.entity.Url;
-import com.linkforge.urlshortener.exception.InvalidExportFormatException;
+import com.linkforge.urlshortener.exception.input.InvalidExportFormatException;
 import com.linkforge.urlshortener.repository.UrlRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-// Service handling URL data export in JSON and CSV formats per PRD Section 5.18
+// Handles URL data export in JSON and CSV formats, capped at EXPORT_ROW_CAP rows.
 @Service
 @RequiredArgsConstructor
 public class ExportService {
@@ -22,23 +22,30 @@ public class ExportService {
     private static final String FORMAT_JSON = "json";
     private static final String FORMAT_CSV  = "csv";
 
+    // Maximum rows returned per export — enforced at the DB level via Pageable LIMIT.
+    static final int EXPORT_ROW_CAP = 5_000;
+
     // CSV column headers matching all URL fields - PRD BR-64
     private static final String CSV_HEADER =
             "id,shortCode,shortUrl,originalUrl,title,description,isCustomAlias,isActive,totalClicks,clickLimit,expiresAt,createdAt,updatedAt";
 
-    // Get all user URLs as a list of UrlResponse DTOs (used for JSON export)
-    public List<UrlResponse> exportAsJson(Long userId) {
-        List<Url> urls = urlRepository.findByUserId(
-                userId, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return urls.stream()
+    // Holds the export result and a flag indicating whether the cap was reached
+    public record ExportResult<T>(T data, boolean truncated, int count) {}
+
+    // Exports the user's URLs as a JSON list, ordered by createdAt DESC.
+    public ExportResult<List<UrlResponse>> exportAsJson(Long userId) {
+        List<Url> urls = urlRepository.findByUserIdForExport(
+                userId, PageRequest.of(0, EXPORT_ROW_CAP));
+        List<UrlResponse> data = urls.stream()
                 .map(urlService::mapToUrlResponse)
                 .toList();
+        return new ExportResult<>(data, urls.size() == EXPORT_ROW_CAP, urls.size());
     }
 
-    // Build CSV string from all user URLs (used for CSV export)
-    public String exportAsCsv(Long userId) {
-        List<Url> urls = urlRepository.findByUserId(
-                userId, Sort.by(Sort.Direction.DESC, "createdAt"));
+    // Exports the user's URLs as a CSV string, ordered by createdAt DESC.
+    public ExportResult<String> exportAsCsv(Long userId) {
+        List<Url> urls = urlRepository.findByUserIdForExport(
+                userId, PageRequest.of(0, EXPORT_ROW_CAP));
 
         StringBuilder csv = new StringBuilder();
         csv.append(CSV_HEADER).append("\n");
@@ -61,10 +68,10 @@ public class ExportService {
                .append("\n");
         }
 
-        return csv.toString();
+        return new ExportResult<>(csv.toString(), urls.size() == EXPORT_ROW_CAP, urls.size());
     }
 
-    // Validate the format parameter - PRD BR-63
+    // Validates that the format is either "json" or "csv".
     public void validateFormat(String format) {
         if (format == null || format.isBlank()) {
             throw new InvalidExportFormatException("Export format is required. Use 'json' or 'csv'");
@@ -75,7 +82,7 @@ public class ExportService {
         }
     }
 
-    // Wrap a CSV field value in quotes if it contains commas, quotes, or newlines
+    // Wraps a CSV field in quotes if it contains commas, quotes, or newlines.
     private String escapeCsv(String value) {
         if (value == null) return "";
         if (value.contains(",") || value.contains("\"") || value.contains("\n")) {

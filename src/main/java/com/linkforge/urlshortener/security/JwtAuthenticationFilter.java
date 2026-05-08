@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -49,29 +50,31 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // Extract username from token
-            String username = jwtUtil.extractUsername(token);
-
             // Only set authentication if not already set in this request
-            if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                // Load the full User entity to use as principal
-                User user = userDetailsService.loadUserEntityByUsername(username);
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                // Look up the user by ID from the token claim — faster than a username lookup.
+                // If the user was deleted after the token was issued, the exception is caught below.
+                Long userId = jwtUtil.extractUserId(token);
+                User user = userDetailsService.loadUserEntityById(userId);
 
-                // Create authentication token with User entity as principal
-                // Empty authorities list - role-based access is not used in this project
+                // Build the authentication token with the User entity as the principal
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(user, null, List.of());
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
-                // Set authentication in the security context
+                // Store authentication in the security context for this request
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }
 
+        } catch (UsernameNotFoundException ex) {
+            // User was deleted after the JWT was issued — treat the request as unauthenticated
+            log.debug("JWT references a user that no longer exists: {}", ex.getMessage());
+            SecurityContextHolder.clearContext();
         } catch (Exception e) {
-            // Log with stack trace for proper debugging
-            // Spring Security will handle the 401 response via JwtAuthenticationEntryPoint
+            // Unexpected error during token processing — clear context and let Spring return 401
             log.warn("JWT authentication failed: {}", e.getMessage(), e);
+            SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);

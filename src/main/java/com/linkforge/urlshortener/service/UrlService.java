@@ -5,7 +5,11 @@ import com.linkforge.urlshortener.dto.request.UpdateUrlRequest;
 import com.linkforge.urlshortener.dto.response.UrlResponse;
 import com.linkforge.urlshortener.entity.Url;
 import com.linkforge.urlshortener.entity.User;
-import com.linkforge.urlshortener.exception.*;
+import com.linkforge.urlshortener.exception.input.InvalidAliasException;
+import com.linkforge.urlshortener.exception.input.InvalidRequestException;
+import com.linkforge.urlshortener.exception.resource.DuplicateResourceException;
+import com.linkforge.urlshortener.exception.resource.ResourceNotFoundException;
+import com.linkforge.urlshortener.exception.url.ShortCodeGenerationException;
 import com.linkforge.urlshortener.repository.UrlRepository;
 import com.linkforge.urlshortener.util.ShortCodeGenerator;
 import com.linkforge.urlshortener.util.UrlValidator;
@@ -49,15 +53,16 @@ public class UrlService {
     // Short code generation max retries - PRD Section 11.5
     private static final int MAX_RETRIES = 5;
 
-    // Create a new shortened URL - PRD Section 5.1
+    // Creates a new shortened URL. Returns the existing entry (created=false) if this user
+    // already shortened the same original URL without a custom alias.
     @Transactional
-    public UrlResponse createUrl(CreateUrlRequest request, Long userId) {
+    public UrlServiceResult createUrl(CreateUrlRequest request, Long userId) {
         // Validate original URL is provided
         if (request.getOriginalUrl() == null || request.getOriginalUrl().isBlank()) {
             throw new InvalidRequestException("Original URL is required");
         }
 
-        // Validate URL format and protocol - PRD BR-41, BR-42
+        // Validate URL format and protocol
         if (!UrlValidator.isValid(request.getOriginalUrl())) {
             throw new InvalidRequestException("Invalid URL format. Only http and https URLs are allowed");
         }
@@ -67,18 +72,24 @@ public class UrlService {
             throw new InvalidRequestException("URL points to a private or reserved address and cannot be shortened");
         }
 
-        // Validate expiration is in the future if provided - PRD BR-20
+        // Expiration date must be in the future if provided
         if (request.getExpiresAt() != null && !request.getExpiresAt().isAfter(LocalDateTime.now())) {
             throw new InvalidRequestException("Expiration date must be in the future");
         }
 
         User user = userService.findUserById(userId);
 
-        // Check for duplicate original URL for this user - PRD BR-44, BR-45
+        // If this original URL already exists for the user, return it or throw depending on alias
         Optional<Url> existing = urlRepository.findByUserIdAndOriginalUrl(userId, request.getOriginalUrl());
         if (existing.isPresent()) {
-            // Return existing entry instead of creating a duplicate - PRD BR-45
-            return mapToUrlResponse(existing.get());
+            if (request.getCustomAlias() == null || request.getCustomAlias().isBlank()) {
+                // No alias requested — return the existing entry
+                return new UrlServiceResult(mapToUrlResponse(existing.get()), false);
+            }
+            // Custom alias requested but this original URL is already shortened by this user
+            throw new InvalidRequestException(
+                    "You already have this URL shortened as '" + existing.get().getShortCode() +
+                    "'. Update the existing entry or use a different original URL.");
         }
 
         // Resolve short code
@@ -86,11 +97,11 @@ public class UrlService {
         boolean isCustomAlias;
 
         if (request.getCustomAlias() != null && !request.getCustomAlias().isBlank()) {
-            // Validate and use custom alias - PRD BR-15, BR-16, BR-17
+            // Validate and use the provided custom alias
             shortCode = validateAndResolveAlias(request.getCustomAlias());
             isCustomAlias = true;
         } else {
-            // Auto-generate unique short code - PRD BR-01, BR-04
+            // Auto-generate a unique short code
             shortCode = generateUniqueShortCode();
             isCustomAlias = false;
         }
@@ -109,7 +120,7 @@ public class UrlService {
         url.setExpiresAt(request.getExpiresAt());
 
         Url saved = urlRepository.save(url);
-        return mapToUrlResponse(saved);
+        return new UrlServiceResult(mapToUrlResponse(saved), true);
     }
 
     // Get a single URL by ID - PRD Section 5.6
@@ -118,7 +129,7 @@ public class UrlService {
         return mapToUrlResponse(url);
     }
 
-    // Get paginated list of URLs with optional search and filters - PRD Section 5.5, 5.14, 5.15
+    // Returns a paginated list of URLs with optional search, sorting, and filters.
     public Page<UrlResponse> getUserUrls(Long userId,
                                           int page,
                                           int size,
@@ -128,14 +139,36 @@ public class UrlService {
                                           LocalDateTime expiresFrom,
                                           LocalDateTime expiresTo,
                                           String q) {
-        // Validate sortBy field - PRD BR-50
+        // Reject unknown sort fields to prevent JPA errors
         if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
             throw new InvalidRequestException("Invalid sortBy value. Allowed values: createdAt, totalClicks, expiresAt");
         }
 
-        // Clamp page size to max - PRD BR-49
+        // Both date range filters must be provided together or not at all
+        if ((expiresFrom != null && expiresTo == null) || (expiresFrom == null && expiresTo != null)) {
+            throw new InvalidRequestException("Both expiresFrom and expiresTo must be provided together");
+        }
+
+        // Combining search with other filters would produce confusing results — reject early
+        if (q != null && !q.isBlank() && (isActive != null || expiresFrom != null)) {
+            throw new InvalidRequestException(
+                    "Search (q) cannot be combined with isActive or expiresFrom/expiresTo filters. Use one at a time.");
+        }
+
+        // Reject combining isActive and expiresFrom together
+        if (isActive != null && expiresFrom != null) {
+            throw new InvalidRequestException(
+                    "isActive and expiresFrom/expiresTo filters cannot be combined. Use one at a time.");
+        }
+
+        // Clamp page size to the configured maximum
         int clampedSize = Math.min(size, MAX_PAGE_SIZE);
         if (clampedSize <= 0) clampedSize = DEFAULT_PAGE_SIZE;
+
+        // Spring Data throws IllegalArgumentException for page < 0, so reject it early
+        if (page < 0) {
+            throw new InvalidRequestException("Page number must not be negative");
+        }
 
         // Build sort direction
         Sort sort = "ASC".equalsIgnoreCase(sortDir)
@@ -144,20 +177,20 @@ public class UrlService {
 
         Pageable pageable = PageRequest.of(page, clampedSize, sort);
 
-        // Apply search if query provided - PRD BR-53
+        // Apply search query if provided
         if (q != null && !q.isBlank()) {
             return urlRepository.searchByUserId(userId, q.trim(), pageable)
                     .map(this::mapToUrlResponse);
         }
 
-        // Apply isActive filter if provided - PRD BR-51
+        // Apply isActive filter if provided
         if (isActive != null) {
             return urlRepository.findByUserIdAndIsActive(userId, isActive, pageable)
                     .map(this::mapToUrlResponse);
         }
 
-        // Apply expiry range filter if provided - PRD BR-51
-        if (expiresFrom != null && expiresTo != null) {
+        // Apply expiry range filter if provided
+        if (expiresFrom != null) {
             return urlRepository.findByUserIdAndExpiresAtBetween(userId, expiresFrom, expiresTo, pageable)
                     .map(this::mapToUrlResponse);
         }
@@ -166,7 +199,7 @@ public class UrlService {
         return urlRepository.findByUserId(userId, pageable).map(this::mapToUrlResponse);
     }
 
-    // Update an existing URL - PRD Section 5.7
+    // Updates an existing URL. Only fields present in the request are changed.
     @Transactional
     public UrlResponse updateUrl(Long urlId, UpdateUrlRequest request, Long userId) {
         Url url = findUrlByIdAndUser(urlId, userId);
@@ -179,12 +212,21 @@ public class UrlService {
             if (!UrlValidator.isSafe(request.getOriginalUrl())) {
                 throw new InvalidRequestException("URL points to a private or reserved address and cannot be shortened");
             }
+            // Check that the new originalUrl is not already shortened by this user under a different entry
+            if (!request.getOriginalUrl().equals(url.getOriginalUrl())) {
+                urlRepository.findByUserIdAndOriginalUrl(userId, request.getOriginalUrl())
+                        .ifPresent(existing -> {
+                            throw new InvalidRequestException(
+                                    "You already have this URL shortened as '" + existing.getShortCode() +
+                                    "'. Update the existing entry or use a different original URL.");
+                        });
+            }
             url.setOriginalUrl(request.getOriginalUrl());
         }
 
-        // Update custom alias if provided - PRD BR-31
+        // Update custom alias if provided
         if (request.getCustomAlias() != null && !request.getCustomAlias().isBlank()) {
-            // Only validate if alias is actually changing
+            // Skip validation if the alias is unchanged
             if (!request.getCustomAlias().equals(url.getShortCode())) {
                 String newAlias = validateAndResolveAlias(request.getCustomAlias());
                 url.setShortCode(newAlias);
@@ -192,26 +234,42 @@ public class UrlService {
             }
         }
 
-        // Update title if provided
+        // Update title if provided (empty string clears the field)
         if (request.getTitle() != null) {
             url.setTitle(request.getTitle().isBlank() ? null : request.getTitle());
         }
 
-        // Update description if provided
+        // Update description if provided (empty string clears the field)
         if (request.getDescription() != null) {
             url.setDescription(request.getDescription().isBlank() ? null : request.getDescription());
         }
 
-        // Update expiration if provided - PRD BR-32
-        if (request.getExpiresAt() != null) {
+        // Reject conflicting expiry instructions — only one can be used at a time
+        if (request.isClearExpiresAt() && request.getExpiresAt() != null) {
+            throw new InvalidRequestException(
+                    "clearExpiresAt and expiresAt cannot be provided together. Use one or the other.");
+        }
+
+        // Clear or update the expiration date
+        if (request.isClearExpiresAt()) {
+            url.setExpiresAt(null);
+        } else if (request.getExpiresAt() != null) {
             if (!request.getExpiresAt().isAfter(LocalDateTime.now())) {
                 throw new InvalidRequestException("Expiration date must be in the future");
             }
             url.setExpiresAt(request.getExpiresAt());
         }
 
-        // Update click limit if provided
-        if (request.getClickLimit() != null) {
+        // Reject conflicting click limit instructions — only one can be used at a time
+        if (request.isClearClickLimit() && request.getClickLimit() != null) {
+            throw new InvalidRequestException(
+                    "clearClickLimit and clickLimit cannot be provided together. Use one or the other.");
+        }
+
+        // Clear or update the click limit
+        if (request.isClearClickLimit()) {
+            url.setClickLimit(null);
+        } else if (request.getClickLimit() != null) {
             url.setClickLimit(request.getClickLimit());
         }
 
@@ -219,19 +277,19 @@ public class UrlService {
         return mapToUrlResponse(updated);
     }
 
-    // Delete a URL permanently - PRD Section 5.8
+    // Permanently deletes a URL and all its associated click logs.
     @Transactional
     public void deleteUrl(Long urlId, Long userId) {
         Url url = findUrlByIdAndUser(urlId, userId);
-        // Cascade deletion removes all associated click_logs - PRD BR-34
+        // Cascade deletion removes all associated click logs
         urlRepository.delete(url);
     }
 
-    // Toggle active/inactive status - PRD Section 5.9
+    // Flips the active/inactive status of a URL.
     @Transactional
     public UrlResponse toggleStatus(Long urlId, Long userId) {
         Url url = findUrlByIdAndUser(urlId, userId);
-        // Flip the current status - PRD BR-36
+        // Flip the current status
         url.setIsActive(!url.getIsActive());
         Url updated = urlRepository.save(url);
         return mapToUrlResponse(updated);
@@ -243,14 +301,14 @@ public class UrlService {
                 .orElseThrow(() -> new ResourceNotFoundException("Short URL not found"));
     }
 
-    // Validate custom alias format, reserved words, and uniqueness
+    // Validates a custom alias against reserved words and checks it is not already taken.
     private String validateAndResolveAlias(String alias) {
-        // Check reserved words using Locale.ROOT for consistent comparison - PRD BR-17
+        // Use Locale.ROOT for consistent case-insensitive comparison
         if (RESERVED_WORDS.contains(alias.toLowerCase(Locale.ROOT))) {
             throw new InvalidAliasException("Alias '" + alias + "' is reserved and cannot be used");
         }
 
-        // Check uniqueness - PRD BR-16
+        // Check uniqueness
         if (urlRepository.existsByShortCode(alias)) {
             throw new DuplicateResourceException("Alias '" + alias + "' is already taken");
         }
@@ -258,7 +316,7 @@ public class UrlService {
         return alias;
     }
 
-    // Generate a unique short code with retry logic - PRD BR-04, Section 11.5
+    // Generates a unique short code, retrying up to MAX_RETRIES times on collision.
     private String generateUniqueShortCode() {
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
             String code = ShortCodeGenerator.generate();
@@ -269,20 +327,13 @@ public class UrlService {
         throw new ShortCodeGenerationException("Failed to generate a unique short code after " + MAX_RETRIES + " attempts");
     }
 
-    // Find URL by ID and verify ownership - throws if not found or not owned by user
+    // Finds a URL by ID and verifies ownership in a single query.
     private Url findUrlByIdAndUser(Long urlId, Long userId) {
-        Url url = urlRepository.findById(urlId)
+        return urlRepository.findByIdAndUserId(urlId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("URL not found with id: " + urlId));
-
-        // Ensure the URL belongs to the requesting user
-        if (!url.getUser().getId().equals(userId)) {
-            throw new ResourceNotFoundException("URL not found with id: " + urlId);
-        }
-
-        return url;
     }
 
-    // Map Url entity to UrlResponse DTO
+    // Maps a Url entity to a UrlResponse DTO, building the full short URL from the base URL.
     public UrlResponse mapToUrlResponse(Url url) {
         return new UrlResponse(
                 url.getId(),
@@ -300,4 +351,7 @@ public class UrlService {
                 url.getUpdatedAt()
         );
     }
+
+    // Simple result wrapper so the controller knows whether a URL was newly created or already existed
+    public record UrlServiceResult(UrlResponse urlResponse, boolean created) {}
 }

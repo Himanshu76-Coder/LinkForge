@@ -7,7 +7,7 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-// Entity representing a single click event on a shortened URL
+// Entity representing a single click event recorded when a short URL is visited.
 @Getter
 @Setter
 @NoArgsConstructor
@@ -19,31 +19,27 @@ public class ClickLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // The URL that was clicked
+    // The short URL that was visited.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "url_id", nullable = false)
     private Url url;
 
-    // IP address of the visitor (IPv4 or IPv6)
+    // IP address of the visitor. Supports both IPv4 and IPv6 (max 45 chars).
     @Column(name = "ip_address", length = 45)
     private String ipAddress;
 
-    // Browser/device user agent string
+    // Browser and device information from the User-Agent header.
     @Column(name = "user_agent", length = 255)
     private String userAgent;
 
-    // The page the visitor came from
+    // The page the visitor came from, taken from the Referer header.
     @Column(length = 500)
     private String referrer;
-
-    // Two-letter ISO country code (e.g. "US", "GB")
-    @Column(length = 2)
-    private String country;
 
     @Column(name = "clicked_at", nullable = false, updatable = false)
     private LocalDateTime clickedAt;
 
-    // Automatically set click timestamp on save
+    // Sets the click timestamp when the record is first saved.
     @PrePersist
     protected void onCreate() {
         clickedAt = LocalDateTime.now();

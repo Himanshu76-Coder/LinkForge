@@ -4,8 +4,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.util.Map;
-
 // DTO for returning aggregated click statistics for a short URL
 @Getter
 @Setter
@@ -23,7 +21,4 @@ public class ClickStatisticsResponse {
 
     // Clicks in the last 30 days
     private Long monthClicks;
-
-    // Click counts grouped by ISO 3166-1 alpha-2 country code
-    private Map<String, Long> clicksByCountry;
 }

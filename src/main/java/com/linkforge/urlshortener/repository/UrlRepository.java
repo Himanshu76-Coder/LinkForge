@@ -3,12 +3,12 @@ package com.linkforge.urlshortener.repository;
 import com.linkforge.urlshortener.entity.Url;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,8 +21,12 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
     // Find URL by its short code (used for redirection and lookup)
     Optional<Url> findByShortCode(String shortCode);
 
-    // Find all URLs for a user without pagination (used for export)
-    List<Url> findByUserId(Long userId, Sort sort);
+    // Find URL by ID and owner in one query - avoids lazy-loading User just to check ownership
+    Optional<Url> findByIdAndUserId(Long id, Long userId);
+
+    // Finds URLs for export ordered by createdAt DESC, capped at EXPORT_ROW_CAP rows via Pageable.
+    @Query("SELECT u FROM Url u WHERE u.user.id = :userId ORDER BY u.createdAt DESC")
+    List<Url> findByUserIdForExport(@Param("userId") Long userId, Pageable pageable);
 
     // Check if a short code is already in use
     boolean existsByShortCode(String shortCode);
@@ -43,12 +47,13 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
                                                @Param("to") LocalDateTime to,
                                                Pageable pageable);
 
-    // Search across originalUrl, shortCode, title, description - PRD BR-54
+    // Full-text search across originalUrl, shortCode, title, and description.
+    // Relies on the DB collation for case-insensitive matching instead of LOWER().
     @Query("SELECT u FROM Url u WHERE u.user.id = :userId AND (" +
-           "LOWER(u.originalUrl) LIKE LOWER(CONCAT('%', :q, '%')) OR " +
-           "LOWER(u.shortCode) LIKE LOWER(CONCAT('%', :q, '%')) OR " +
-           "LOWER(u.title) LIKE LOWER(CONCAT('%', :q, '%')) OR " +
-           "LOWER(u.description) LIKE LOWER(CONCAT('%', :q, '%')))")
+           "u.originalUrl LIKE CONCAT('%', :q, '%') OR " +
+           "u.shortCode LIKE CONCAT('%', :q, '%') OR " +
+           "u.title LIKE CONCAT('%', :q, '%') OR " +
+           "u.description LIKE CONCAT('%', :q, '%'))")
     Page<Url> searchByUserId(@Param("userId") Long userId, @Param("q") String q, Pageable pageable);
 
     // Count total URLs for a user (used in stats)
@@ -64,12 +69,15 @@ public interface UrlRepository extends JpaRepository<Url, Long> {
     @Query("SELECT COALESCE(SUM(u.totalClicks), 0) FROM Url u WHERE u.user.id = :userId")
     long sumTotalClicksByUserId(@Param("userId") Long userId);
 
-    // Count URLs that have passed their expiration date (used in stats)
+    // Count all URLs (active or inactive) that have passed their expiration date (used in stats).
     @Query("SELECT COUNT(u) FROM Url u WHERE u.user.id = :userId AND u.expiresAt IS NOT NULL AND u.expiresAt < :now")
     long countExpiredUrlsByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
 
-    // Increment click count atomically without loading the entity
+    // Atomically increments the click counter only when the click limit has not been reached.
+    // Returns 1 on success, 0 if the limit was already hit (no limit = always increments).
     @Modifying
-    @Query("UPDATE Url u SET u.totalClicks = u.totalClicks + 1 WHERE u.id = :urlId")
-    void incrementClickCount(@Param("urlId") Long urlId);
+    @Transactional
+    @Query("UPDATE Url u SET u.totalClicks = u.totalClicks + 1 " +
+           "WHERE u.id = :urlId AND (u.clickLimit IS NULL OR u.totalClicks < u.clickLimit)")
+    int incrementClickCountIfAllowed(@Param("urlId") Long urlId);
 }

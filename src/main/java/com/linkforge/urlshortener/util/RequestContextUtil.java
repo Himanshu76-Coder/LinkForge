@@ -5,23 +5,28 @@ import jakarta.servlet.http.HttpServletRequest;
 // Utility for extracting client information from incoming HTTP requests
 public class RequestContextUtil {
 
-    // Extract the real client IP, handling proxies and load balancers
+    // Returns the real client IP. Trusts X-Forwarded-For only when the connection
+    // comes from a local proxy (127.0.0.1 or ::1) to prevent IP spoofing.
     public static String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
+        String remoteAddr = request.getRemoteAddr();
 
-        if (ip == null || ip.isBlank() || "unknown".equalsIgnoreCase(ip)) {
-            ip = request.getHeader("X-Real-IP");
-        }
-        if (ip == null || ip.isBlank() || "unknown".equalsIgnoreCase(ip)) {
-            ip = request.getRemoteAddr();
+        // Only trust proxy headers when the direct connection is from localhost
+        boolean fromLocalProxy = "127.0.0.1".equals(remoteAddr) || "::1".equals(remoteAddr);
+
+        if (fromLocalProxy) {
+            String forwarded = request.getHeader("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isBlank() && !"unknown".equalsIgnoreCase(forwarded)) {
+                // X-Forwarded-For may contain multiple IPs; the first is the original client
+                return forwarded.split(",")[0].trim();
+            }
+
+            String realIp = request.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank() && !"unknown".equalsIgnoreCase(realIp)) {
+                return realIp.trim();
+            }
         }
 
-        // X-Forwarded-For can contain multiple IPs; take the first (original client)
-        if (ip != null && ip.contains(",")) {
-            ip = ip.split(",")[0].trim();
-        }
-
-        return ip;
+        return remoteAddr;
     }
 
     // Extract User-Agent header, truncated to 255 characters

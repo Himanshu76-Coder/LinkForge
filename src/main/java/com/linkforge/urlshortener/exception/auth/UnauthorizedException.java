@@ -1,4 +1,6 @@
-package com.linkforge.urlshortener.exception;
+package com.linkforge.urlshortener.exception.auth;
+
+import com.linkforge.urlshortener.exception.base.LinkForgeException;
 
 // Thrown when a user is not authorized to perform an action
 public class UnauthorizedException extends LinkForgeException {

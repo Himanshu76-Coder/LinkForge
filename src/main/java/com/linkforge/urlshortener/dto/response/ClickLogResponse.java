@@ -18,6 +18,5 @@ public class ClickLogResponse {
     private String ipAddress;
     private String userAgent;
     private String referrer;
-    private String country;
     private LocalDateTime clickedAt;
 }

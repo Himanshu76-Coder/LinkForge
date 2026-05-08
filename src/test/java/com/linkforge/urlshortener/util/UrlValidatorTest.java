@@ -54,7 +54,6 @@ class UrlValidatorTest {
 
     @Test
     void isValid_withUrlExceedingMaxLength_returnsFalse() {
-        // Build a URL longer than 2048 characters
         String longUrl = "https://example.com/" + "a".repeat(2050);
         assertThat(UrlValidator.isValid(longUrl)).isFalse();
     }
@@ -94,6 +93,15 @@ class UrlValidatorTest {
 
     @Test
     void isSafe_withPrivateIpRange172_returnsFalse() {
+        // 172.16.x.x through 172.31.x.x are private
         assertThat(UrlValidator.isSafe("http://172.16.0.1")).isFalse();
+        assertThat(UrlValidator.isSafe("http://172.31.255.255")).isFalse();
+    }
+
+    @Test
+    void isSafe_withPublic172Range_returnsTrue() {
+        // 172.0.x.x through 172.15.x.x and 172.32.x.x+ are public
+        assertThat(UrlValidator.isSafe("http://172.15.0.1")).isTrue();
+        assertThat(UrlValidator.isSafe("http://172.32.0.1")).isTrue();
     }
 }

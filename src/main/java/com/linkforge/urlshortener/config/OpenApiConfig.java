@@ -9,22 +9,21 @@ import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-// OpenAPI / Swagger UI configuration for LinkForge API documentation
+// Configures Swagger UI with JWT Bearer authentication for the LinkForge API
 @Configuration
 public class OpenApiConfig {
 
     @Bean
     public OpenAPI linkForgeOpenAPI() {
-        // Define the Bearer JWT security scheme
+        // Define the Bearer JWT security scheme shown in Swagger UI
         SecurityScheme bearerScheme = new SecurityScheme()
                 .type(SecurityScheme.Type.HTTP)
                 .scheme("bearer")
                 .bearerFormat("JWT")
                 .description("Enter your JWT access token. Obtain it from POST /api/v1/auth/login");
 
-        // Apply the security scheme globally to all endpoints
-        SecurityRequirement securityRequirement = new SecurityRequirement()
-                .addList("bearerAuth");
+        // Apply the Bearer scheme globally so all endpoints show the Authorize button
+        SecurityRequirement securityRequirement = new SecurityRequirement().addList("bearerAuth");
 
         return new OpenAPI()
                 .info(new Info()

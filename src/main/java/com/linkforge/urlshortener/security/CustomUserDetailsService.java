@@ -10,35 +10,34 @@ import org.springframework.stereotype.Service;
 
 import java.util.Collections;
 
-// Loads user from DB for Spring Security authentication - sets User entity as principal
+// Loads the User entity from the database to serve as the Spring Security principal
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
 
-    // Load user by username - called by Spring Security during authentication
+    // Required by UserDetailsService — wraps the User entity in a Spring Security UserDetails object.
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
-
-        // Wrap our User entity as a Spring Security UserDetails
-        // Using User entity directly as principal so SecurityUtil can cast it back
+        User user = loadUserEntityByUsername(username);
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
                 user.getHashedPassword(),
-                true,
-                true,
-                true,
-                true,
+                true, true, true, true,
                 Collections.emptyList()
         );
     }
 
-    // Load the full User entity by username (used by JWT filter to set principal)
+    // Loads the full User entity by username.
     public User loadUserEntityByUsername(String username) {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+    }
+
+    // Loads the full User entity by ID — called by JwtAuthenticationFilter using the userId claim.
+    public User loadUserEntityById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userId));
     }
 }

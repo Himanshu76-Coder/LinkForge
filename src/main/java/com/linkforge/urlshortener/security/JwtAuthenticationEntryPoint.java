@@ -3,6 +3,7 @@ package com.linkforge.urlshortener.security;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
@@ -12,11 +13,13 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-// Returns a JSON 401 response when an unauthenticated request hits a protected endpoint
+// Returns a JSON 401 response when an unauthenticated request reaches a protected endpoint
 @Component
+@RequiredArgsConstructor
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    // Use Spring's configured ObjectMapper so LocalDateTime serializes consistently with the rest of the API
+    private final ObjectMapper objectMapper;
 
     @Override
     public void commence(HttpServletRequest request,
@@ -26,7 +29,6 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType("application/json");
 
-        // Build standardized error response matching PRD error envelope
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", 401);
         body.put("success", false);
@@ -37,7 +39,7 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
         error.put("details", null);
         body.put("error", error);
 
-        body.put("timestamp", LocalDateTime.now().toString());
+        body.put("timestamp", LocalDateTime.now());
 
         response.getWriter().write(objectMapper.writeValueAsString(body));
     }

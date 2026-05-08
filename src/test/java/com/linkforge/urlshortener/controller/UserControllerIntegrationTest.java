@@ -2,6 +2,7 @@ package com.linkforge.urlshortener.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linkforge.urlshortener.dto.request.ChangePasswordRequest;
+import com.linkforge.urlshortener.dto.request.CreateUrlRequest;
 import com.linkforge.urlshortener.dto.request.LoginRequest;
 import com.linkforge.urlshortener.dto.request.RegisterRequest;
 import com.linkforge.urlshortener.dto.request.UpdateProfileRequest;
@@ -72,7 +73,6 @@ class UserControllerIntegrationTest {
                 .andExpect(jsonPath("$.data.username").value("john_doe"))
                 .andExpect(jsonPath("$.data.email").value("john@example.com"))
                 .andExpect(jsonPath("$.data.id").exists())
-                // Password must never appear in response
                 .andExpect(jsonPath("$.data.hashedPassword").doesNotExist())
                 .andExpect(jsonPath("$.data.password").doesNotExist());
     }
@@ -99,6 +99,21 @@ class UserControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.email").value("updated@example.com"));
+    }
+
+    @Test
+    void updateProfile_withSameUsername_returns200WithoutError() throws Exception {
+        // Sending the same username that the user already has must succeed silently
+        UpdateProfileRequest request = new UpdateProfileRequest();
+        request.setUsername("john_doe");
+
+        mockMvc.perform(put("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.username").value("john_doe"));
     }
 
     @Test
@@ -169,6 +184,22 @@ class UserControllerIntegrationTest {
     }
 
     @Test
+    void changePassword_withSamePassword_returns400() throws Exception {
+        // Sending the same password as the current one must be rejected as a business rule
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword("password123");
+        request.setNewPassword("password123");
+
+        mockMvc.perform(patch("/api/v1/users/me/password")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
     void changePassword_withShortNewPassword_returns400() throws Exception {
         ChangePasswordRequest request = new ChangePasswordRequest();
         request.setCurrentPassword("password123");
@@ -189,15 +220,23 @@ class UserControllerIntegrationTest {
 
     @Test
     void getStats_withValidAuth_returns200WithAllAggregateFields() throws Exception {
+        // Create a URL so stats are non-trivially populated
+        CreateUrlRequest urlRequest = new CreateUrlRequest();
+        urlRequest.setOriginalUrl("https://www.example.com");
+        mockMvc.perform(post("/api/v1/urls")
+                .header("Authorization", "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(urlRequest)));
+
         mockMvc.perform(get("/api/v1/users/me/stats")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.totalUrls").exists())
-                .andExpect(jsonPath("$.data.totalClicks").exists())
-                .andExpect(jsonPath("$.data.activeUrls").exists())
-                .andExpect(jsonPath("$.data.inactiveUrls").exists())
-                .andExpect(jsonPath("$.data.expiredUrls").exists());
+                .andExpect(jsonPath("$.data.totalUrls").value(1))
+                .andExpect(jsonPath("$.data.totalClicks").value(0))
+                .andExpect(jsonPath("$.data.activeUrls").value(1))
+                .andExpect(jsonPath("$.data.inactiveUrls").value(0))
+                .andExpect(jsonPath("$.data.expiredUrls").value(0));
     }
 
     // ==========================================
@@ -205,12 +244,21 @@ class UserControllerIntegrationTest {
     // ==========================================
 
     @Test
-    void deleteAccount_withValidAuth_returns204AndRemovesAllData() throws Exception {
+    void deleteAccount_withValidAuth_returns204() throws Exception {
+        mockMvc.perform(delete("/api/v1/users/me")
+                        .header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void deleteAccount_thenAccessWithOldToken_returns401() throws Exception {
+        // Delete the account
         mockMvc.perform(delete("/api/v1/users/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isNoContent());
 
-        // After deletion, the old JWT should no longer work
+        // The JWT filter will try to load the user by ID, find it deleted,
+        // and leave the security context empty - resulting in 401
         mockMvc.perform(get("/api/v1/users/me")
                         .header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isUnauthorized());

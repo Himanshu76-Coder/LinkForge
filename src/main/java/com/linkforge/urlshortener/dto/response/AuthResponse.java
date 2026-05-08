@@ -15,7 +15,7 @@ public class AuthResponse {
     // Short-lived JWT access token (15 minutes)
     private String accessToken;
 
-    // Long-lived refresh token (7 days) - only returned on login, not on refresh
+    // Refresh token - returned on login and on every token refresh (rotated on each refresh)
     private String refreshToken;
 
     // Always "Bearer"

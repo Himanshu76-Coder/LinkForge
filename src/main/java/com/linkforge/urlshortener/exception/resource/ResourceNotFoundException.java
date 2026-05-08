@@ -1,4 +1,6 @@
-package com.linkforge.urlshortener.exception;
+package com.linkforge.urlshortener.exception.resource;
+
+import com.linkforge.urlshortener.exception.base.LinkForgeException;
 
 // Thrown when a requested resource does not exist
 public class ResourceNotFoundException extends LinkForgeException {

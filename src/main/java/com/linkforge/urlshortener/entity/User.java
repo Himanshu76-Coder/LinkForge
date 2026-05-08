@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-// Entity representing a registered user account
+// Entity representing a registered user account.
 @Getter
 @Setter
 @NoArgsConstructor
@@ -21,15 +21,15 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // Unique username for login
+    // Unique username used for login and display.
     @Column(nullable = false, unique = true, length = 50)
     private String username;
 
-    // Unique email address
-    @Column(nullable = false, unique = true, length = 100)
+    // Unique email address used for authentication.
+    @Column(nullable = false, unique = true, length = 255)
     private String email;
 
-    // BCrypt hashed password (never stored as plain text)
+    // BCrypt hash of the user's password — the raw password is never stored.
     @Column(name = "hashed_password", nullable = false)
     private String hashedPassword;
 
@@ -39,22 +39,22 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
-    // One user can have many shortened URLs
+    // All URLs owned by this user. Deleting the user cascades to all their URLs.
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Url> urls = new ArrayList<>();
 
-    // One user can have many refresh tokens (multiple devices)
+    // All refresh tokens issued to this user across all devices.
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RefreshToken> refreshTokens = new ArrayList<>();
 
-    // Automatically set timestamps on first save
+    // Sets both timestamps when the record is first created.
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
 
-    // Automatically update timestamp on every update
+    // Updates the timestamp every time the record is modified.
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
